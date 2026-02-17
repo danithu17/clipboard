@@ -1,29 +1,24 @@
-name: Build Clipboard Manager
+name: Windows Build
 on: [push]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4 # Updated to v4
 
-      - name: Setup vcpkg
+      - name: Install vcpkg dependencies
         run: |
-          cd C:\tools\vcpkg
-          git pull
-          .\bootstrap-vcpkg.bat
-
-      - name: Install dependencies
-        run: vcpkg install imgui glfw3 glew --triplet x64-windows
+          vcpkg install imgui[glfw-binding,opengl3-binding] glfw3 glew --triplet x64-windows
 
       - name: Configure CMake
         run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/tools/vcpkg/scripts/buildsystems/vcpkg.cmake
 
-      - name: Build
+      - name: Build Project
         run: cmake --build build --config Release
 
-      - name: Upload EXE
-        uses: actions/upload-artifact@v3
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4 # Updated to v4 - meka thamai error eka fix karanne
         with:
-          name: Clipboard-Tool
+          name: DanithuClipboardManager
           path: build/Release/*.exe
