@@ -18,8 +18,14 @@ char searchBuffer[128] = "";
 std::wstring lastCapturedText = L"";
 bool isDarkMode = true;
 bool isDragging = false;
+bool isVisible = true;
 double dragOffsetX, dragOffsetY;
-int selectedTab = 0; // 0: All, 1: Links, 2: Code
+int selectedTab = 0;
+
+// Shortcut Registration (ALT + V)
+void SetupGlobalShortcut(HWND hwnd) {
+    RegisterHotKey(hwnd, 1, MOD_ALT, 0x56); // 0x56 is 'V'
+}
 
 std::string GetCurrentTimeString() {
     time_t now = time(0);
@@ -40,14 +46,13 @@ std::string WStringToString(const std::wstring& wstr) {
 void ApplyModernSequoiaTheme(bool dark) {
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding = 20.0f;
-    style.FrameRounding = 10.0f;
-    style.PopupRounding = 12.0f;
+    style.FrameRounding = 12.0f;
     style.WindowPadding = ImVec2(0, 0);
     style.ItemSpacing = ImVec2(0, 0);
 
     ImVec4* colors = style.Colors;
     if (dark) {
-        colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.12f, 0.98f);
+        colors[ImGuiCol_WindowBg] = ImVec4(0.12f, 0.12f, 0.14f, 0.98f);
         colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
     } else {
         colors[ImGuiCol_WindowBg] = ImVec4(0.98f, 0.98f, 1.00f, 0.98f);
@@ -66,11 +71,9 @@ void UpdateClipboard() {
                 GlobalUnlock(hData);
                 if (currentText != lastCapturedText && !currentText.empty()) {
                     lastCapturedText = currentText;
-                    std::string type = "Text";
-                    if (currentText.find(L"http") != std::string::npos) type = "Link";
-                    else if (currentText.find(L"{") != std::string::npos || currentText.find(L";") != std::string::npos) type = "Code";
+                    std::string type = (currentText.find(L"http") != std::string::npos) ? "Link" : 
+                                       (currentText.find(L"{") != std::string::npos) ? "Code" : "Text";
                     history.insert(history.begin(), { currentText, GetCurrentTimeString(), type });
-                    if (history.size() > 50) history.pop_back();
                 }
             }
         }
@@ -82,32 +85,48 @@ int main() {
     if (!glfwInit()) return 1;
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
-    GLFWwindow* window = glfwCreateWindow(500, 700, "AppleClip Pro", NULL, NULL);
+    glfwWindowHint(GLFW_FLOATING, GLFW_TRUE); // Always on Top
+
+    GLFWwindow* window = glfwCreateWindow(650, 500, "AppleClip Pro", NULL, NULL);
     glfwMakeContextCurrent(window);
     HWND hwnd = glfwGetWin32Window(window);
-    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    SetupGlobalShortcut(hwnd);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ApplyModernSequoiaTheme(isDarkMode);
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 130");
+    ImGui_ImplOpenGL3_Init("#version(130)");
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        UpdateClipboard();
 
+        // Listen for Global Shortcut (ALT + V)
+        MSG msg;
+        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_HOTKEY) {
+                isVisible = !isVisible;
+                if (isVisible) { ShowWindow(hwnd, SW_SHOW); SetForegroundWindow(hwnd); }
+                else ShowWindow(hwnd, SW_HIDE);
+            }
+            TranslateMessage(&msg); DispatchMessage(&msg);
+        }
+
+        if (!isVisible) { Sleep(50); continue; }
+
+        UpdateClipboard();
         double mx, my; glfwGetCursorPos(window, &mx, &my);
+        
+        // Window Movement & Traffic Lights
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
-            if (!isDragging && my < 50 && mx > 100) { isDragging = true; dragOffsetX = mx; dragOffsetY = my; }
+            if (!isDragging && my < 60 && mx > 180) { isDragging = true; dragOffsetX = mx; dragOffsetY = my; }
             if (isDragging) {
                 int wx, wy; glfwGetWindowPos(window, &wx, &wy);
                 glfwSetWindowPos(window, wx + (int)mx - (int)dragOffsetX, wy + (int)my - (int)dragOffsetY);
             }
-            // Traffic Light Logic
             if (my > 18 && my < 38) {
-                if (mx > 18 && mx < 38) glfwSetWindowShouldClose(window, true);
-                if (mx > 38 && mx < 58) ShowWindow(hwnd, SW_MINIMIZE);
+                if (mx > 18 && mx < 38) glfwSetWindowShouldClose(window, true); // Close
+                if (mx > 38 && mx < 58) { isVisible = false; ShowWindow(hwnd, SW_HIDE); } // Hide (Hide to tray vibe)
             }
         } else isDragging = false;
 
@@ -117,86 +136,81 @@ int main() {
 
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::Begin("Main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground);
+        ImGui::Begin("AppleUI", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground);
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImU32 bg = ImGui::GetColorU32(ImGui::GetStyle().Colors[ImGuiCol_WindowBg]);
         dl->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize, bg, 20.0f);
 
-        // Sidebar Background
-        dl->AddRectFilled(ImVec2(0, 0), ImVec2(150, 700), ImGui::GetColorU32(ImVec4(0,0,0,0.05f)), 20.0f, ImDrawFlags_RoundCornersLeft);
+        // Sidebar - Glassmorphism Style
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(180, 500), ImGui::GetColorU32(ImVec4(0,0,0,0.04f)), 20.0f, ImDrawFlags_RoundCornersLeft);
 
-        // Traffic Lights
-        dl->AddCircleFilled(ImVec2(28, 28), 6.0f, IM_COL32(255, 69, 58, 255));
-        dl->AddCircleFilled(ImVec2(48, 28), 6.0f, IM_COL32(255, 204, 0, 255));
-        dl->AddCircleFilled(ImVec2(68, 28), 6.0f, IM_COL32(52, 199, 89, 255));
+        // Apple Traffic Lights
+        dl->AddCircleFilled(ImVec2(28, 28), 6.5f, IM_COL32(255, 69, 58, 255));
+        dl->AddCircleFilled(ImVec2(48, 28), 6.5f, IM_COL32(255, 204, 0, 255));
+        dl->AddCircleFilled(ImVec2(68, 28), 6.5f, IM_COL32(52, 199, 89, 255));
 
-        // SIDEBAR CONTENT
-        ImGui::SetCursorPos(ImVec2(15, 70));
-        ImGui::BeginGroup();
-        auto SidebarBtn = [&](const char* label, int id) {
+        // Sidebar Content
+        ImGui::SetCursorPos(ImVec2(15, 80));
+        auto SidebarTab = [&](const char* label, int id) {
             bool active = (selectedTab == id);
-            if (active) dl->AddRectFilled(ImVec2(10, ImGui::GetCursorScreenPos().y - 5), ImVec2(140, ImGui::GetCursorScreenPos().y + 25), ImGui::GetColorU32(ImVec4(0, 0.48f, 1, 0.2f)), 8.0f);
-            if (ImGui::Selectable(label, active, 0, ImVec2(120, 20))) selectedTab = id;
+            if (active) dl->AddRectFilled(ImVec2(10, ImGui::GetCursorScreenPos().y - 5), ImVec2(170, ImGui::GetCursorScreenPos().y + 30), ImGui::GetColorU32(ImVec4(0, 0.48f, 1, 0.15f)), 10.0f);
+            ImGui::PushStyleColor(ImGuiCol_Text, active ? ImVec4(0, 0.48f, 1, 1) : ImGui::GetStyle().Colors[ImGuiCol_Text]);
+            if (ImGui::Selectable(label, active, 0, ImVec2(150, 25))) selectedTab = id;
+            ImGui::PopStyleColor();
             ImGui::Spacing(); ImGui::Spacing();
         };
-        SidebarBtn("  All Clips", 0);
-        SidebarBtn("  Links", 1);
-        SidebarBtn("  Code", 2);
-        ImGui::EndGroup();
+        SidebarTab("   All Clips", 0);
+        SidebarTab("   Links", 1);
+        SidebarTab("   Code Snippets", 2);
 
-        // MAIN CONTENT AREA
-        ImGui::SetCursorPos(ImVec2(165, 20));
+        // Main Content View
+        ImGui::SetCursorPos(ImVec2(200, 25));
         ImGui::BeginGroup();
-        ImGui::TextDisabled("RECENT HISTORY");
-        
-        ImGui::SetCursorPosX(165);
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 20.0f);
-        ImGui::SetNextItemWidth(310);
-        ImGui::InputTextWithHint("##S", "Search...", searchBuffer, 128);
+        ImGui::TextDisabled("SEARCH HISTORY");
+        ImGui::SetCursorPosX(200);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 25.0f);
+        ImGui::SetNextItemWidth(420);
+        ImGui::InputTextWithHint("##Search", "Search your clipboard...", searchBuffer, 128);
         ImGui::PopStyleVar();
 
-        ImGui::SetCursorPos(ImVec2(160, 90));
-        if (ImGui::BeginChild("Items", ImVec2(330, 590), false, ImGuiWindowFlags_NoBackground)) {
+        ImGui::SetCursorPos(ImVec2(190, 100));
+        if (ImGui::BeginChild("Items", ImVec2(440, 380), false, ImGuiWindowFlags_NoBackground)) {
             for (int i = 0; i < (int)history.size(); i++) {
-                std::string typeFilter = (selectedTab == 1) ? "Link" : (selectedTab == 2) ? "Code" : "";
-                if (!typeFilter.empty() && history[i].type != typeFilter) continue;
+                std::string filter = (selectedTab == 1) ? "Link" : (selectedTab == 2) ? "Code" : "";
+                if (!filter.empty() && history[i].type != filter) continue;
 
                 ImGui::PushID(i);
                 std::string utf8 = WStringToString(history[i].text);
                 ImVec2 cp = ImGui::GetCursorScreenPos();
                 
-                bool hov = false;
-                if (ImGui::InvisibleButton("##c", ImVec2(310, 55))) {
+                if (ImGui::InvisibleButton("##c", ImVec2(430, 65))) {
                     OpenClipboard(nullptr); EmptyClipboard();
                     size_t s = (history[i].text.size() + 1) * sizeof(wchar_t);
                     HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, s);
                     memcpy(GlobalLock(h), history[i].text.c_str(), s);
                     GlobalUnlock(h); SetClipboardData(CF_UNICODETEXT, h); CloseClipboard();
                 }
-                hov = ImGui::IsItemHovered();
+                bool hov = ImGui::IsItemHovered();
+                ImU32 cBg = hov ? ImGui::GetColorU32(ImVec4(0.5f,0.5f,0.5f,0.1f)) : ImGui::GetColorU32(ImVec4(0.5f,0.5f,0.5f,0.03f));
+                dl->AddRectFilled(cp, ImVec2(cp.x + 430, cp.y + 65), cBg, 15.0f);
 
-                ImU32 cBg = hov ? ImGui::GetColorU32(ImVec4(0.5f,0.5f,0.5f,0.12f)) : ImGui::GetColorU32(ImVec4(0.5f,0.5f,0.5f,0.05f));
-                dl->AddRectFilled(cp, ImVec2(cp.x + 310, cp.y + 55), cBg, 12.0f);
-                
-                dl->AddText(ImVec2(cp.x+12, cp.y+10), ImGui::GetColorU32(ImVec4(0, 0.48f, 1, 1)), history[i].type.c_str());
-                dl->AddText(ImVec2(cp.x+12, cp.y+30), ImGui::GetColorU32(ImGui::GetStyle().Colors[ImGuiCol_Text]), utf8.substr(0, 35).c_str());
-                dl->AddText(ImVec2(cp.x+260, cp.y+10), ImGui::GetColorU32(ImVec4(0.5f,0.5f,0.5f,0.6f)), history[i].time.c_str());
+                dl->AddText(ImVec2(cp.x+15, cp.y+15), ImGui::GetColorU32(ImVec4(0, 0.48f, 1, 1)), history[i].type.c_str());
+                dl->AddText(ImVec2(cp.x+15, cp.y+38), ImGui::GetColorU32(ImGui::GetStyle().Colors[ImGuiCol_Text]), utf8.substr(0, 50).c_str());
+                dl->AddText(ImVec2(cp.x+380, cp.y+15), ImGui::GetColorU32(ImVec4(0.5f,0.5f,0.5f,0.6f)), history[i].time.c_str());
 
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10);
                 ImGui::PopID();
             }
             ImGui::EndChild();
         }
         ImGui::EndGroup();
-
+        
         ImGui::End();
         ImGui::Render();
-        glClearColor(0,0,0,0);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClearColor(0,0,0,0); glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
-        Sleep(10);
     }
     return 0;
 }
