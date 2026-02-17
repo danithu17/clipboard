@@ -1,4 +1,4 @@
-name: Windows Build
+name: Build Clipboard Manager
 on: [push]
 
 jobs:
@@ -7,17 +7,23 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install vcpkg dependencies
+      - name: Setup vcpkg
+        run: |
+          cd C:\tools\vcpkg
+          git pull
+          .\bootstrap-vcpkg.bat
+
+      - name: Install dependencies
         run: vcpkg install imgui glfw3 glew --triplet x64-windows
 
       - name: Configure CMake
         run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/tools/vcpkg/scripts/buildsystems/vcpkg.cmake
 
-      - name: Build Project
+      - name: Build
         run: cmake --build build --config Release
 
-      - name: Upload Artifact
+      - name: Upload EXE
         uses: actions/upload-artifact@v3
         with:
-          name: DanithuClipboardManager
+          name: Clipboard-Tool
           path: build/Release/*.exe
