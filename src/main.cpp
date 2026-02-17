@@ -52,17 +52,16 @@ void ApplyAppleTheme(bool dark) {
 
     ImVec4* colors = style.Colors;
     if (dark) {
-        colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.09f, 0.11f, 0.94f);
+        colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.09f, 0.11f, 0.96f);
         colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
         colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.15f, 0.18f, 1.00f);
     } else {
-        colors[ImGuiCol_WindowBg] = ImVec4(0.96f, 0.96f, 0.98f, 0.94f);
+        colors[ImGuiCol_WindowBg] = ImVec4(0.96f, 0.96f, 0.98f, 0.96f);
         colors[ImGuiCol_Text] = ImVec4(0.12f, 0.12f, 0.14f, 1.00f);
         colors[ImGuiCol_FrameBg] = ImVec4(0.88f, 0.88f, 0.90f, 1.00f);
     }
     colors[ImGuiCol_Button] = ImVec4(0, 0, 0, 0);
     colors[ImGuiCol_Header] = ImVec4(0.00f, 0.48f, 1.00f, 0.20f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.00f, 0.48f, 1.00f, 0.40f);
 }
 
 void UpdateClipboard() {
@@ -93,7 +92,7 @@ int main() {
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(420, 700, "AppleClip", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(420, 720, "AppleClip", NULL, NULL);
     glfwMakeContextCurrent(window);
     HWND hwnd = glfwGetWin32Window(window);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
@@ -109,9 +108,10 @@ int main() {
         glfwPollEvents();
         UpdateClipboard();
 
+        // Window Dragger
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
             double x, y; glfwGetCursorPos(window, &x, &y);
-            if (!isDragging && y < 60) { isDragging = true; dragOffsetX = x; dragOffsetY = y; }
+            if (!isDragging && y < 50) { isDragging = true; dragOffsetX = x; dragOffsetY = y; }
             if (isDragging) {
                 int wx, wy; glfwGetWindowPos(window, &wx, &wy);
                 glfwSetWindowPos(window, wx + (int)x - (int)dragOffsetX, wy + (int)y - (int)dragOffsetY);
@@ -127,66 +127,79 @@ int main() {
         ImGui::Begin("MacUI", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBackground);
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImVec4 bgColV4 = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
-        // FIXED: Using ImGui::GetColorU32 for conversion
-        dl->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize, ImGui::GetColorU32(bgColV4), 18.0f);
+        ImVec4 bgCol = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+        dl->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize, ImGui::GetColorU32(bgCol), 18.0f);
 
-        // Traffic Lights
-        ImVec2 tl_pos = ImGui::GetCursorScreenPos();
-        dl->AddCircleFilled(ImVec2(tl_pos.x + 25, tl_pos.y + 25), 6.0f, IM_COL32(255, 69, 58, 255));
-        dl->AddCircleFilled(ImVec2(tl_pos.x + 45, tl_pos.y + 25), 6.0f, IM_COL32(255, 204, 0, 255));
-        dl->AddCircleFilled(ImVec2(tl_pos.x + 65, tl_pos.y + 25), 6.0f, IM_COL32(52, 199, 89, 255));
+        // --- TRAFFIC LIGHTS CONTROLS ---
+        ImVec2 tl = ImGui::GetCursorScreenPos();
+        
+        // Red (Close)
+        ImGui::SetCursorPos(ImVec2(18, 18));
+        if (ImGui::InvisibleButton("##Close", ImVec2(15, 15))) glfwSetWindowShouldClose(window, true);
+        dl->AddCircleFilled(ImVec2(tl.x + 25, tl.y + 25), 6.0f, IM_COL32(255, 69, 58, 255));
 
-        ImGui::SetCursorPos(ImVec2(20, 55));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.00f));
-        ImGui::Text("CLIPBOARD HISTORY");
-        ImGui::PopStyleColor();
+        // Yellow (Minimize)
+        ImGui::SetCursorPos(ImVec2(38, 18));
+        if (ImGui::InvisibleButton("##Min", ImVec2(15, 15))) ShowWindow(hwnd, SW_MINIMIZE);
+        dl->AddCircleFilled(ImVec2(tl.x + 45, tl.y + 25), 6.0f, IM_COL32(255, 204, 0, 255));
 
-        ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - 95, 52));
+        // Green (Reset Position - Optional)
+        dl->AddCircleFilled(ImVec2(tl.x + 65, tl.y + 25), 6.0f, IM_COL32(52, 199, 89, 255));
+
+        // App Icon & Name
+        ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth()/2 - 20, 18));
+        ImGui::TextDisabled("( )"); // Placeholder for Icon
+        
+        ImGui::SetCursorPos(ImVec2(20, 60));
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "CLIPBOARD");
+        
+        ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - 95, 58));
         if (ImGui::SmallButton(isDarkMode ? "Light" : "Dark")) { isDarkMode = !isDarkMode; ApplyAppleTheme(isDarkMode); }
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear")) history.clear();
 
-        ImGui::SetCursorPos(ImVec2(20, 85));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 8));
+        ImGui::SetCursorPos(ImVec2(20, 95));
         ImGui::SetNextItemWidth(ImGui::GetWindowWidth() - 40);
-        ImGui::InputTextWithHint("##Search", "Search clips...", searchBuffer, 128);
-        ImGui::PopStyleVar(2);
-
-        ImGui::SetCursorPos(ImVec2(0, 140));
+        ImGui::InputTextWithHint("##Search", "Search History...", searchBuffer, 128);
+        
+        ImGui::SetCursorPos(ImVec2(0, 145));
         if (ImGui::BeginChild("ScrollRegion", ImVec2(0, 0), false, ImGuiWindowFlags_NoBackground)) {
             for (int i = 0; i < (int)history.size(); i++) {
                 ImGui::PushID(i);
                 std::string utf8 = WStringToString(history[i].text);
                 
-                ImGui::SetCursorPosX(15);
+                ImGui::SetCursorPosX(20);
                 ImGui::BeginGroup();
+                
+                // Content Card Hover Logic
+                ImVec2 cardMin = ImGui::GetCursorScreenPos();
+                bool selected = ImGui::Selectable("##item", false, 0, ImVec2(ImGui::GetWindowWidth() - 40, 50));
+                ImVec2 cardMax = ImGui::GetItemRectMax();
+                
+                if (ImGui::IsItemHovered()) {
+                    dl->AddRectFilled(cardMin, cardMax, ImGui::GetColorU32(ImVec4(0, 0.48f, 1, 0.15f)), 10.0f);
+                    ImGui::BeginTooltip(); ImGui::TextUnformatted(utf8.c_str()); ImGui::EndTooltip();
+                }
+
+                if (selected) {
+                    OpenClipboard(nullptr); EmptyClipboard();
+                    size_t s = (history[i].text.size() + 1) * sizeof(wchar_t);
+                    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, s);
+                    memcpy(GlobalLock(h), history[i].text.c_str(), s);
+                    GlobalUnlock(h); SetClipboardData(CF_UNICODETEXT, h); CloseClipboard();
+                }
+
+                // Draw Text over the selectable
+                ImGui::SetCursorScreenPos(ImVec2(cardMin.x + 10, cardMin.y + 8));
                 ImGui::TextColored(ImVec4(0, 0.48f, 1, 1), "[%s]", history[i].type.c_str());
                 ImGui::SameLine();
-                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 0.8f), history[i].time.c_str());
+                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 0.7f), history[i].time.c_str());
                 
-                if (ImGui::Selectable(utf8.substr(0, 42).c_str(), false, 0, ImVec2(ImGui::GetWindowWidth() - 30, 45))) {
-                    if (OpenClipboard(nullptr)) {
-                        EmptyClipboard();
-                        size_t s = (history[i].text.size() + 1) * sizeof(wchar_t);
-                        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, s);
-                        memcpy(GlobalLock(h), history[i].text.c_str(), s);
-                        GlobalUnlock(h); SetClipboardData(CF_UNICODETEXT, h); CloseClipboard();
-                        lastCapturedText = history[i].text;
-                    }
-                }
+                ImGui::SetCursorScreenPos(ImVec2(cardMin.x + 10, cardMin.y + 28));
+                ImGui::Text(utf8.substr(0, 45).c_str());
+                
                 ImGui::EndGroup();
-
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    ImGui::TextUnformatted(utf8.c_str());
-                    ImGui::EndTooltip();
-                    // FIXED: ImVec4 to ImU32 conversion for hover overlay
-                    dl->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetColorU32(ImVec4(0, 0.48f, 1, 0.1f)), 10.0f);
-                }
-                
-                ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                ImGui::Spacing();
                 ImGui::PopID();
             }
             ImGui::EndChild();
@@ -200,11 +213,6 @@ int main() {
         glfwSwapBuffers(window);
         Sleep(10);
     }
-
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    glfwDestroyWindow(window);
-    glfwTerminate();
     return 0;
 }
+
