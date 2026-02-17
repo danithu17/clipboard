@@ -11,23 +11,19 @@ jobs:
         run: vcpkg install --triplet x64-windows
 
       - name: Configure CMake
-        run: |
-          cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
+        run: cmake -B build -S . "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build Project
         run: cmake --build build --config Release
 
-      - name: Prepare Release Folder
-        # මේ step එකෙන් කරන්නේ .exe එකයි ඒකට ඕනේ DLL ටිකයි එක තැනකට copy කරන එක
+      - name: Prepare Release
         run: |
-          mkdir release_dist
-          copy build\Release\*.exe release_dist\
-          copy build\Release\*.dll release_dist\ 2>$null || echo "No DLLs in build folder"
-          # vcpkg වල installed folder එකෙන් අවශ්‍ය DLLs copy කිරීම
-          copy vcpkg_installed\x64-windows\bin\*.dll release_dist\
+          mkdir dist
+          copy build\Release\*.exe dist\
+          copy vcpkg_installed\x64-windows\bin\*.dll dist\
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DanithuClipboard-ReadyToRun
-          path: release_dist/
+          name: DanithuClipboard_Pro
+          path: dist/

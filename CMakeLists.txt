@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.15)
 project(ClipboardManager)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(imgui CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
@@ -18,11 +17,10 @@ target_link_libraries(ClipboardManager PRIVATE
     User32.lib 
     Gdi32.lib 
     Shell32.lib
+    Dwmapi.lib
 )
 
-# ME TIKA THAMAI FIX EKA:
 if(MSVC)
-    # Console eka nathuwa run wenna, eth standard main() eka use karanna me link flags ona
     set_target_properties(ClipboardManager PROPERTIES 
         WIN32_EXECUTABLE TRUE
         LINK_FLAGS "/ENTRY:mainCRTStartup"
