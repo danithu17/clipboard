@@ -6,8 +6,8 @@
 #include <vector>
 #include <string>
 #include <ctime>
-#include <thread>
 
+// ImGui & GLFW
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -16,6 +16,11 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
+// Standard OpenGL defines that might be missing
+#ifndef GL_BGRA
+#define GL_BGRA 0x80E1
+#endif
+
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "shell32.lib")
@@ -23,13 +28,12 @@
 
 using namespace Gdiplus;
 
-// --- Data Structure ---
 struct ClipItem {
     std::wstring text; 
     std::string type;  
     std::string time;
     bool isPinned = false;
-    GLuint textureID = 0; // For Real Image Preview
+    GLuint textureID = 0;
     int imgW = 0, imgH = 0;
 };
 
@@ -40,7 +44,7 @@ bool isDraggingWindow = false;
 double dragOffsetX, dragOffsetY;
 int selectedTab = 0;
 
-// --- 🖼️ IMAGE HELPER: Convert HBITMAP to OpenGL Texture ---
+// --- 🖼️ IMAGE HELPER (Fixed GL_BGRA issue) ---
 GLuint LoadTextureFromHBitmap(HBITMAP hBitmap, int* out_width, int* out_height) {
     Bitmap bmp(hBitmap, NULL);
     *out_width = bmp.GetWidth();
@@ -48,12 +52,16 @@ GLuint LoadTextureFromHBitmap(HBITMAP hBitmap, int* out_width, int* out_height) 
     
     BitmapData data;
     Rect rect(0, 0, *out_width, *out_height);
+    // Use PixelFormat32bppARGB which is standard for GDI+
     bmp.LockBits(&rect, ImageLockModeRead, PixelFormat32bppARGB, &data);
 
     GLuint texture;
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
+    
+    // Windows uses BGRA internally, OpenGL needs to know
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, *out_width, *out_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, data.Scan0);
+    
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     
@@ -61,11 +69,10 @@ GLuint LoadTextureFromHBitmap(HBITMAP hBitmap, int* out_width, int* out_height) 
     return texture;
 }
 
-// --- 📋 CLIPBOARD MONITOR (Optimized to Prevent Freeze) ---
 void MonitorClipboard() {
-    static DWORD lastTime = 0;
-    if (GetTickCount() - lastTime < 500) return; // Check every 500ms
-    lastTime = GetTickCount();
+    static DWORD lastCheck = 0;
+    if (GetTickCount() - lastCheck < 500) return;
+    lastCheck = GetTickCount();
 
     if (!OpenClipboard(NULL)) return;
 
@@ -87,7 +94,7 @@ void MonitorClipboard() {
             lastCapturedText = L"__IMG__";
             int w, h;
             GLuint tex = LoadTextureFromHBitmap(hBmp, &w, &h);
-            history.insert(history.begin(), { L"Clipboard Image", "Image", timeBuf, false, tex, w, h });
+            history.insert(history.begin(), { L"Image", "Image", timeBuf, false, tex, w, h });
         }
     } else if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
         HANDLE hData = GetClipboardData(CF_UNICODETEXT);
@@ -104,13 +111,11 @@ void MonitorClipboard() {
     CloseClipboard();
 }
 
-// --- 📥 DRAG & DROP CALLBACK ---
 void OnFileDrop(GLFWwindow* window, int count, const char** paths) {
     time_t now = time(0); struct tm t; localtime_s(&t, &now); 
     char timeBuf[10]; strftime(timeBuf, sizeof(timeBuf), "%H:%M", &t);
     for (int i = 0; i < count; i++) {
-        std::string p = paths[i];
-        std::wstring wp(p.begin(), p.end());
+        std::wstring wp = std::wstring(std::string(paths[i]).begin(), std::string(paths[i]).end());
         history.insert(history.begin(), { wp, "File", timeBuf, false });
     }
 }
@@ -122,10 +127,10 @@ int main() {
     glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(850, 650, "Apple Sequoia Dropzone", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(850, 650, "AppleClip Pro", NULL, NULL);
     HWND hwnd = glfwGetWin32Window(window);
     
-    // Sequoia Blur
+    // Sequoia Blur Effect
     BOOL darkMode = TRUE; DwmSetWindowAttribute(hwnd, 20, &darkMode, sizeof(darkMode));
     int backdrop = 3; DwmSetWindowAttribute(hwnd, 38, &backdrop, sizeof(backdrop));
 
@@ -136,8 +141,6 @@ int main() {
     IMGUI_CHECKVERSION(); ImGui::CreateContext();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
-
-    ImGui::GetStyle().WindowRounding = 28.0f;
 
     while (!glfwWindowShouldClose(window)) {
         MSG msg;
@@ -150,7 +153,7 @@ int main() {
         glfwPollEvents(); MonitorClipboard();
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) isVisible = false;
 
-        // Window Dragging Logic (Fixed)
+        // Window Dragging
         double mx, my; glfwGetCursorPos(window, &mx, &my);
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
             if (!isDraggingWindow && my < 80) { isDraggingWindow = true; dragOffsetX = mx; dragOffsetY = my; }
@@ -161,17 +164,19 @@ int main() {
         } else isDraggingWindow = false;
 
         ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
-        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize); ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::Begin("Dropzone", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+        
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::Begin("Canvas", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
         
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImVec2 sz = ImGui::GetIO().DisplaySize;
 
-        // UI Design
+        // Sequoia Design
         dl->AddRectFilled(ImVec2(0, 0), sz, IM_COL32(10, 10, 15, 245), 28.0f);
         dl->AddRectFilled(ImVec2(0, 0), ImVec2(250, sz.y), IM_COL32(255, 255, 255, 10), 28.0f, ImDrawFlags_RoundCornersLeft);
 
-        // Sidebar Navigation
+        // Sidebar Nav
         ImGui::SetCursorPos(ImVec2(25, 110));
         auto Nav = [&](const char* label, int id) {
             if (selectedTab == id) dl->AddRectFilled(ImVec2(ImGui::GetCursorScreenPos().x - 10, ImGui::GetCursorScreenPos().y - 5), ImVec2(ImGui::GetCursorScreenPos().x + 210, ImGui::GetCursorScreenPos().y + 35), IM_COL32(0, 122, 255, 255), 14.0f);
@@ -180,21 +185,20 @@ int main() {
         };
         Nav("   All Snippets", 0); Nav("   Files & Drops", 1); Nav("   Images", 2);
 
-        // Content List
+        // List View
         ImGui::SetCursorPos(ImVec2(280, 80));
-        if (ImGui::BeginChild("List", ImVec2(530, 540), false, ImGuiWindowFlags_NoBackground)) {
+        if (ImGui::BeginChild("Scroll", ImVec2(530, 540), false, ImGuiWindowFlags_NoBackground)) {
             for (int i = 0; i < (int)history.size(); i++) {
                 if (selectedTab == 1 && history[i].type != "File") continue;
                 if (selectedTab == 2 && history[i].type != "Image") continue;
 
                 ImGui::PushID(i); ImVec2 p = ImGui::GetCursorScreenPos();
-                bool hov = ImGui::IsMouseHoveringRect(p, ImVec2(p.x + 510, p.y + 110));
-                dl->AddRectFilled(p, ImVec2(p.x + 510, p.y + 110), hov ? IM_COL32(255, 255, 255, 30) : IM_COL32(255, 255, 255, 15), 20.0f);
+                dl->AddRectFilled(p, ImVec2(p.x + 510, p.y + 110), ImGui::IsMouseHoveringRect(p, ImVec2(p.x + 510, p.y + 110)) ? IM_COL32(255, 255, 255, 30) : IM_COL32(255, 255, 255, 15), 20.0f);
                 
-                // Image Rendering
                 if (history[i].type == "Image" && history[i].textureID != 0) {
                     ImGui::SetCursorScreenPos(ImVec2(p.x + 15, p.y + 15));
-                    ImGui::Image((void*)(intptr_t)history[i].textureID, ImVec2(80, 80));
+                    // --- FIXED IMGUI::IMAGE CAST ---
+                    ImGui::Image((ImTextureID)(intptr_t)history[i].textureID, ImVec2(80, 80));
                     ImGui::SetCursorScreenPos(ImVec2(p.x + 110, p.y + 25));
                     ImGui::TextColored(ImVec4(0, 0.8f, 0, 1), "IMAGE PREVIEW");
                 } else {
@@ -219,6 +223,7 @@ int main() {
             }
             ImGui::EndChild();
         }
+
         ImGui::End(); ImGui::Render(); glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData()); glfwSwapBuffers(window);
     }
