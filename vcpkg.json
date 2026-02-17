@@ -2,7 +2,13 @@
   "name": "clipboard-manager",
   "version-string": "1.0.0",
   "dependencies": [
-    "imgui",
+    {
+      "name": "imgui",
+      "features": [
+        "glfw-binding",
+        "opengl3-binding"
+      ]
+    },
     "glfw3",
     "glew"
   ]

@@ -5,11 +5,11 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4 # Updated to v4
+      - uses: actions/checkout@v4
 
       - name: Install vcpkg dependencies
-        run: |
-          vcpkg install imgui[glfw-binding,opengl3-binding] glfw3 glew --triplet x64-windows
+        # Dan package names gahanna epa, me command eka witharak gahanna
+        run: vcpkg install --triplet x64-windows
 
       - name: Configure CMake
         run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/tools/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -18,7 +18,7 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4 # Updated to v4 - meka thamai error eka fix karanne
+        uses: actions/upload-artifact@v4
         with:
           name: DanithuClipboardManager
           path: build/Release/*.exe
