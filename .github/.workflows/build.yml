@@ -1,0 +1,23 @@
+name: Windows Build
+on: [push]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install vcpkg dependencies
+        run: vcpkg install imgui glfw3 glew --triplet x64-windows
+
+      - name: Configure CMake
+        run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=C:/tools/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build Project
+        run: cmake --build build --config Release
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: DanithuClipboardManager
+          path: build/Release/*.exe

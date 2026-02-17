@@ -1,0 +1,9 @@
+{
+  "name": "clipboard-manager",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "imgui",
+    "glfw3",
+    "glew"
+  ]
+}
