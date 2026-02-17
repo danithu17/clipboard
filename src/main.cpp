@@ -3,7 +3,6 @@
 #include <string>
 #include <windows.h>
 #include <algorithm>
-#include <regex>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -12,17 +11,15 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-enum Category { ALL, TEXT, LINKS, CODE };
-
-struct ClipItem {
-    std::wstring text;
-    Category cat;
-    bool pinned = false;
-};
-
+struct ClipItem { std::wstring text; bool pinned = false; };
 std::vector<ClipItem> history;
 char searchBuffer[128] = "";
 std::wstring lastCapturedText = L"";
+bool isDarkMode = true;
+
+// Window dragging logic variables
+bool isDragging = false;
+double dragOffsetX, dragOffsetY;
 
 std::string WStringToString(const std::wstring& wstr) {
     if (wstr.empty()) return "";
@@ -32,29 +29,25 @@ std::string WStringToString(const std::wstring& wstr) {
     return str;
 }
 
-Category IdentifyCategory(const std::wstring& wstr) {
-    std::string str = WStringToString(wstr);
-    if (str.find("http") != std::string::npos || str.find("www.") != std::string::npos) return LINKS;
-    if (str.find("{") != std::string::npos || str.find(";") != std::string::npos || str.find("function") != std::string::npos) return CODE;
-    return TEXT;
-}
-
-void ApplyCyberpunkTheme() {
+void ApplyMacTheme(bool dark) {
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 10.0f;
-    style.FrameRounding = 6.0f;
-    style.ItemSpacing = ImVec2(10, 10);
-    style.ScrollbarRounding = 10.0f;
+    style.WindowRounding = 16.0f;
+    style.FrameRounding = 10.0f;
+    style.ScrollbarRounding = 12.0f;
+    style.WindowBorderSize = 0.0f;
 
     ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.05f, 0.07f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.20f, 0.22f, 0.47f, 1.00f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.30f, 0.35f, 0.70f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.12f, 0.12f, 0.18f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.30f, 0.60f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.10f, 0.15f, 1.00f);
-    colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.95f, 1.00f);
-    colors[ImGuiCol_Separator] = ImVec4(0.20f, 0.20f, 0.25f, 1.00f);
+    if (dark) {
+        colors[ImGuiCol_WindowBg] = ImVec4(0.12f, 0.12f, 0.14f, 0.98f);
+        colors[ImGuiCol_Text] = ImVec4(0.95f, 0.95f, 0.95f, 1.00f);
+        colors[ImGuiCol_FrameBg] = ImVec4(0.18f, 0.18f, 0.20f, 1.00f);
+    } else {
+        colors[ImGuiCol_WindowBg] = ImVec4(0.95f, 0.95f, 0.97f, 0.98f);
+        colors[ImGuiCol_Text] = ImVec4(0.12f, 0.12f, 0.14f, 1.00f);
+        colors[ImGuiCol_FrameBg] = ImVec4(0.88f, 0.88f, 0.90f, 1.00f);
+    }
+    colors[ImGuiCol_Button] = colors[ImGuiCol_FrameBg];
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.00f, 0.48f, 1.00f, 1.00f); // Apple Blue
 }
 
 void UpdateClipboard() {
@@ -68,8 +61,8 @@ void UpdateClipboard() {
                 GlobalUnlock(hData);
                 if (currentText != lastCapturedText && !currentText.empty()) {
                     lastCapturedText = currentText;
-                    history.insert(history.begin(), { currentText, IdentifyCategory(currentText), false });
-                    if (history.size() > 100) history.pop_back();
+                    history.insert(history.begin(), { currentText, false });
+                    if (history.size() > 50) history.pop_back();
                 }
             }
         }
@@ -79,7 +72,10 @@ void UpdateClipboard() {
 
 int main() {
     if (!glfwInit()) return 1;
-    GLFWwindow* window = glfwCreateWindow(420, 650, "Dynamo Clipboard Pro", NULL, NULL);
+    glfwWindowHint(GLFW_DECORATED, GLFW_FALSE); // Remove Windows Titlebar
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
+
+    GLFWwindow* window = glfwCreateWindow(400, 600, "MacClipboard", NULL, NULL);
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
@@ -88,16 +84,29 @@ int main() {
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ApplyCyberpunkTheme();
+    ApplyMacTheme(isDarkMode);
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
 
-    Category currentTab = ALL;
-
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         UpdateClipboard();
+
+        // Handle Window Dragging
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+            double x, y;
+            glfwGetCursorPos(window, &x, &y);
+            if (!isDragging && y < 40) { // Drag only from top area
+                isDragging = true;
+                dragOffsetX = x; dragOffsetY = y;
+            }
+            if (isDragging) {
+                int wx, wy;
+                glfwGetWindowPos(window, &wx, &wy);
+                glfwSetWindowPos(window, wx + (int)x - (int)dragOffsetX, wy + (int)y - (int)dragOffsetY);
+            }
+        } else { isDragging = false; }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -105,49 +114,39 @@ int main() {
 
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::Begin("Dashboard", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+        ImGui::Begin("Main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 
-        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.7f, 1.0f), ">> DYNAMO CLIPBOARD PRO");
+        // Traffic Lights
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        dl->AddCircleFilled(ImVec2(p.x + 20, p.y + 20), 6.0f, IM_COL32(255, 95, 86, 255));
+        dl->AddCircleFilled(ImVec2(p.x + 40, p.y + 20), 6.0f, IM_COL32(255, 189, 46, 255));
+        dl->AddCircleFilled(ImVec2(p.x + 60, p.y + 20), 6.0f, IM_COL32(39, 201, 63, 255));
+
+        // Top Controls
+        ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - 80, 12));
+        if (ImGui::SmallButton(isDarkMode ? "Light" : "Dark")) {
+            isDarkMode = !isDarkMode;
+            ApplyMacTheme(isDarkMode);
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) glfwSetWindowShouldClose(window, true);
+
+        ImGui::SetCursorPosY(45);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 20.0f);
+        ImGui::SetNextItemWidth(-50);
+        ImGui::InputTextWithHint("##Search", " Search...", searchBuffer, 128);
+        ImGui::PopStyleVar();
+        
+        ImGui::SameLine();
+        if (ImGui::Button("Clear", ImVec2(40, 25))) history.clear();
+
         ImGui::Separator();
 
-        auto TabButton = [&](const char* label, Category cat, ImVec4 activeColor) {
-            if (currentTab == cat) ImGui::PushStyleColor(ImGuiCol_Button, activeColor);
-            if (ImGui::Button(label, ImVec2(90, 30))) currentTab = cat;
-            if (currentTab == cat) ImGui::PopStyleColor();
-        };
-
-        TabButton("All", ALL, ImVec4(0.2f, 0.4f, 0.8f, 1.0f)); ImGui::SameLine();
-        TabButton("Links", LINKS, ImVec4(0.0f, 0.7f, 0.9f, 1.0f)); ImGui::SameLine();
-        TabButton("Code", CODE, ImVec4(0.7f, 0.0f, 0.9f, 1.0f)); ImGui::SameLine();
-        TabButton("Text", TEXT, ImVec4(0.4f, 0.4f, 0.4f, 1.0f));
-
-        ImGui::Spacing();
-        ImGui::InputTextWithHint("##Search", "Quick search history...", searchBuffer, 128);
-        ImGui::Separator();
-
-        if (ImGui::BeginChild("ItemsList", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+        if (ImGui::BeginChild("List")) {
             for (int i = 0; i < (int)history.size(); i++) {
-                if (currentTab != ALL && history[i].cat != currentTab) continue;
-
                 std::string utf8 = WStringToString(history[i].text);
-                std::string search(searchBuffer);
-                if (!search.empty()) {
-                    std::string low = utf8; std::transform(low.begin(), low.end(), low.begin(), ::tolower);
-                    std::transform(search.begin(), search.end(), search.begin(), ::tolower);
-                    if (low.find(search) == std::string::npos) continue;
-                }
-
-                ImGui::PushID(i);
-                
-                ImVec4 tagColor = (history[i].cat == LINKS) ? ImVec4(0, 0.7f, 1, 1) : (history[i].cat == CODE) ? ImVec4(0.7f, 0, 1, 1) : ImVec4(0.5f, 0.5f, 0.5f, 1);
-                ImGui::TextColored(tagColor, "|"); ImGui::SameLine();
-
-                if (history[i].pinned) { ImGui::TextColored(ImVec4(1, 0.9f, 0, 1), "[PIN]"); ImGui::SameLine(); }
-
-                std::string preview = utf8.substr(0, 40) + (utf8.size() > 40 ? "..." : "");
-                
-                bool isHovered = false;
-                if (ImGui::Selectable(preview.c_str(), false, 0, ImVec2(0, 45))) {
+                if (ImGui::Selectable(utf8.substr(0, 45).c_str(), false, 0, ImVec2(0, 45))) {
                     if (OpenClipboard(nullptr)) {
                         EmptyClipboard();
                         size_t s = (history[i].text.size() + 1) * sizeof(wchar_t);
@@ -157,47 +156,21 @@ int main() {
                         lastCapturedText = history[i].text;
                     }
                 }
-                
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Click to Copy");
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 1, 0.8f, 1)); 
-                    isHovered = true;
+                    ImGui::BeginTooltip(); ImGui::TextUnformatted(utf8.c_str()); ImGui::EndTooltip();
                 }
-
-                if (ImGui::BeginPopupContextItem()) {
-                    if (ImGui::MenuItem("Pin/Unpin")) {
-                        history[i].pinned = !history[i].pinned;
-                        std::sort(history.begin(), history.end(), [](const ClipItem& a, const ClipItem& b){
-                            return a.pinned > b.pinned;
-                        });
-                    }
-                    if (ImGui::MenuItem("Delete")) { history.erase(history.begin() + i); ImGui::EndPopup(); ImGui::PopID(); break; }
-                    ImGui::EndPopup();
-                }
-
-                if (isHovered) ImGui::PopStyleColor(); 
-
                 ImGui::Separator();
-                ImGui::PopID();
             }
             ImGui::EndChild();
         }
         ImGui::End();
 
         ImGui::Render();
+        glClearColor(0,0,0,0);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
-        Sleep(50);
     }
-    
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-    glfwDestroyWindow(window);
-    glfwTerminate();
-    
     return 0;
 }
-
 
