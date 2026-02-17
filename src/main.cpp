@@ -12,51 +12,59 @@
 #include <GLFW/glfw3native.h>
 
 struct ClipItem {
-    std::string text;
+    std::wstring text; // Unicode support (Sinhala/Emoji)
     bool isImage = false;
     bool pinned = false;
 };
 
 std::vector<ClipItem> history;
 char searchBuffer[128] = "";
+std::wstring lastCapturedText = L"";
 
-// Windows API use karala window eka uda thiyaganna (Always on Top)
-void SetAlwaysOnTop(GLFWwindow* window) {
-    HWND hwnd = glfwGetWin32Window(window);
-    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+// Wstring to String conversion for ImGui display
+std::string WStringToString(const std::wstring& wstr) {
+    if (wstr.empty()) return "";
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+    std::string strTo(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+    return strTo;
 }
 
-// Clipboard eka check karala text/images detect kireema
-void UpdateClipboardLogic() {
+// Clipboard Update Logic (Dynamic Fix)
+void UpdateClipboardDynamic() {
+    // Clipboard eka wena app ekakin open karala thibboth 10ms inna
     if (!OpenClipboard(nullptr)) return;
 
-    if (IsClipboardFormatAvailable(CF_UNICODETEXT) || IsClipboardFormatAvailable(CF_TEXT)) {
-        HANDLE hData = GetClipboardData(CF_TEXT);
+    // Unicode Text detect kireema (Standard text walatath wada karanawa)
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+        HANDLE hData = GetClipboardData(CF_UNICODETEXT);
         if (hData) {
-            char* pszText = static_cast<char*>(GlobalLock(hData));
-            if (pszText) {
-                std::string text(pszText);
+            wchar_t* pText = static_cast<wchar_t*>(GlobalLock(hData));
+            if (pText) {
+                std::wstring currentText(pText);
                 GlobalUnlock(hData);
 
-                // Duplicate check
-                auto it = std::find_if(history.begin(), history.end(), [&](const ClipItem& item) {
-                    return item.text == text;
-                });
+                if (currentText != lastCapturedText && !currentText.empty()) {
+                    lastCapturedText = currentText;
 
-                if (it == history.end() && !text.empty()) {
-                    history.insert(history.begin(), {text, false, false});
-                    if (history.size() > 100) history.pop_back();
+                    // Duplicate check
+                    auto it = std::find_if(history.begin(), history.end(), [&](const ClipItem& item) {
+                        return item.text == currentText;
+                    });
+
+                    if (it == history.end()) {
+                        history.insert(history.begin(), { currentText, false, false });
+                        if (history.size() > 100) history.pop_back();
+                    }
                 }
             }
         }
-    } 
+    }
     else if (IsClipboardFormatAvailable(CF_BITMAP)) {
-        std::string imgTag = "[IMAGE DATA - Copy detected]";
-        auto it = std::find_if(history.begin(), history.end(), [&](const ClipItem& item) {
-            return item.text == imgTag;
-        });
-        if (it == history.end()) {
-            history.insert(history.begin(), {imgTag, true, false});
+        std::wstring imgTag = L"[IMAGE DATA DETECTED]";
+        if (lastCapturedText != imgTag) {
+            history.insert(history.begin(), { imgTag, true, false });
+            lastCapturedText = imgTag;
         }
     }
     CloseClipboard();
@@ -64,32 +72,31 @@ void UpdateClipboardLogic() {
 
 int main() {
     if (!glfwInit()) return 1;
-    
-    // Modern small window
-    GLFWwindow* window = glfwCreateWindow(400, 600, "Danithu Clipboard Pro", NULL, NULL);
+
+    GLFWwindow* window = glfwCreateWindow(420, 600, "Danithu Clipboard Pro", NULL, NULL);
     if (!window) return 1;
-    
+
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
-    SetAlwaysOnTop(window); 
+
+    // Always on Top
+    HWND hwnd = glfwGetWin32Window(window);
+    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiStyle& style = ImGui::GetStyle();
-    
-    // Modern Dark Theme Styling
     style.WindowRounding = 10.0f;
-    style.FrameRounding = 5.0f;
-    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.08f, 0.10f, 1.00f);
-    style.Colors[ImGuiCol_Header] = ImVec4(0.20f, 0.25f, 0.30f, 1.00f);
-    style.Colors[ImGuiCol_Button] = ImVec4(0.25f, 0.30f, 0.50f, 1.00f);
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.09f, 1.00f);
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        UpdateClipboardLogic();
+        
+        // Background check (Dynamic update)
+        UpdateClipboardDynamic();
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
@@ -97,49 +104,44 @@ int main() {
 
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::Begin("Clipboard", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+        ImGui::Begin("Main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 
-        // Header
-        ImGui::TextColored(ImVec4(0.0f, 0.9f, 1.0f, 1.0f), "CLIPBOARD PRO");
-        ImGui::SameLine(ImGui::GetWindowWidth() - 70);
-        if(ImGui::SmallButton("Clear")) history.clear();
+        ImGui::TextColored(ImVec4(0, 1, 0.8f, 1), "DYNAMO CLIPBOARD PRO");
         ImGui::Separator();
+        ImGui::InputTextWithHint("##Search", "Search...", searchBuffer, 128);
 
-        // Search Bar
-        ImGui::InputTextWithHint("##Search", "Search clips...", searchBuffer, 128);
-        ImGui::Spacing();
-
-        if (ImGui::BeginChild("ListArea")) {
-            std::string searchStr(searchBuffer);
-            std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
-
-            for (int i = 0; i < history.size(); i++) {
-                std::string lowerText = history[i].text;
-                std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
-
-                if (!searchStr.empty() && lowerText.find(searchStr) == std::string::npos) continue;
-
-                ImGui::PushID(i);
+        if (ImGui::BeginChild("Items")) {
+            for (int i = 0; i < (int)history.size(); i++) {
+                std::string utf8Text = WStringToString(history[i].text);
                 
-                // Color coding for Pinned and Images
-                if (history[i].pinned) ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "[PINNED]");
-                ImVec4 textColor = history[i].isImage ? ImVec4(1, 0.4f, 0.4f, 1) : ImVec4(0.9f, 0.9f, 0.9f, 1);
-                
-                std::string display = history[i].text.substr(0, 60);
-                if (ImGui::Selectable(display.c_str(), false, 0, ImVec2(0, 35))) {
-                    if (!history[i].isImage) {
-                        // Restore text to clipboard
-                        OpenClipboard(nullptr);
-                        EmptyClipboard();
-                        HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, history[i].text.size() + 1);
-                        memcpy(GlobalLock(hGlob), history[i].text.c_str(), history[i].text.size() + 1);
-                        GlobalUnlock(hGlob);
-                        SetClipboardData(CF_TEXT, hGlob);
-                        CloseClipboard();
-                    }
+                // Search filter
+                std::string searchStr(searchBuffer);
+                if (!searchStr.empty()) {
+                    std::string lowerText = utf8Text;
+                    std::transform(lowerText.begin(), lowerText.end(), lowerText.begin(), ::tolower);
+                    std::transform(searchStr.begin(), searchStr.end(), searchStr.begin(), ::tolower);
+                    if (lowerText.find(searchStr) == std::string::npos) continue;
                 }
 
-                // Right click options
+                ImGui::PushID(i);
+                if (history[i].pinned) ImGui::TextColored(ImVec4(1, 0.9f, 0, 1), "[PIN]");
+                
+                if (ImGui::Selectable(utf8Text.substr(0, 50).c_str(), false, 0, ImVec2(0, 35))) {
+                    if (!history[i].isImage) {
+                        // Copy back to clipboard
+                        if (OpenClipboard(nullptr)) {
+                            EmptyClipboard();
+                            size_t size = (history[i].text.size() + 1) * sizeof(wchar_t);
+                            HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, size);
+                            memcpy(GlobalLock(hGlob), history[i].text.c_str(), size);
+                            GlobalUnlock(hGlob);
+                            SetClipboardData(CF_UNICODETEXT, hGlob);
+                            CloseClipboard();
+                            lastCapturedText = history[i].text; // Update lastCaptured so it doesn't re-add
+                        }
+                    }
+                }
+                
                 if (ImGui::BeginPopupContextItem()) {
                     if (ImGui::MenuItem("Pin/Unpin")) {
                         history[i].pinned = !history[i].pinned;
@@ -147,10 +149,7 @@ int main() {
                             return a.pinned > b.pinned;
                         });
                     }
-                    if (ImGui::MenuItem("Delete")) {
-                        history.erase(history.begin() + i);
-                        ImGui::EndPopup(); ImGui::PopID(); break;
-                    }
+                    if (ImGui::MenuItem("Delete")) { history.erase(history.begin() + i); ImGui::EndPopup(); ImGui::PopID(); break; }
                     ImGui::EndPopup();
                 }
                 ImGui::Separator();
@@ -164,6 +163,8 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(window);
+        
+        Sleep(100); // 100ms delay ekak CPU eka save karanna
     }
 
     ImGui_ImplOpenGL3_Shutdown();

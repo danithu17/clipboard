@@ -17,7 +17,6 @@ target_link_libraries(ClipboardManager PRIVATE
     User32.lib 
     Gdi32.lib 
     Shell32.lib
-    Dwmapi.lib
 )
 
 if(MSVC)
