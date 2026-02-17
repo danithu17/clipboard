@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <algorithm>
 #include <ctime>
 
 // ImGui & GLFW
@@ -16,7 +17,7 @@
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-// Standard OpenGL defines that might be missing
+// Fix OpenGL Missing Defines
 #ifndef GL_BGRA
 #define GL_BGRA 0x80E1
 #endif
@@ -43,32 +44,26 @@ bool isVisible = true;
 bool isDraggingWindow = false;
 double dragOffsetX, dragOffsetY;
 int selectedTab = 0;
+char searchBuffer[128] = "";
 
-// --- 🖼️ IMAGE HELPER (Fixed GL_BGRA issue) ---
+// --- 🖼️ IMAGE HANDLER ---
 GLuint LoadTextureFromHBitmap(HBITMAP hBitmap, int* out_width, int* out_height) {
     Bitmap bmp(hBitmap, NULL);
-    *out_width = bmp.GetWidth();
-    *out_height = bmp.GetHeight();
-    
+    *out_width = bmp.GetWidth(); *out_height = bmp.GetHeight();
     BitmapData data;
     Rect rect(0, 0, *out_width, *out_height);
-    // Use PixelFormat32bppARGB which is standard for GDI+
     bmp.LockBits(&rect, ImageLockModeRead, PixelFormat32bppARGB, &data);
-
     GLuint texture;
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D, texture);
-    
-    // Windows uses BGRA internally, OpenGL needs to know
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, *out_width, *out_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, data.Scan0);
-    
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    
     bmp.UnlockBits(&data);
     return texture;
 }
 
+// --- 📋 CLIPBOARD MONITOR ---
 void MonitorClipboard() {
     static DWORD lastCheck = 0;
     if (GetTickCount() - lastCheck < 500) return;
@@ -92,9 +87,8 @@ void MonitorClipboard() {
         HBITMAP hBmp = (HBITMAP)GetClipboardData(CF_BITMAP);
         if (hBmp && lastCapturedText != L"__IMG__") {
             lastCapturedText = L"__IMG__";
-            int w, h;
-            GLuint tex = LoadTextureFromHBitmap(hBmp, &w, &h);
-            history.insert(history.begin(), { L"Image", "Image", timeBuf, false, tex, w, h });
+            int w, h; GLuint tex = LoadTextureFromHBitmap(hBmp, &w, &h);
+            history.insert(history.begin(), { L"Clipboard Image", "Image", timeBuf, false, tex, w, h });
         }
     } else if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
         HANDLE hData = GetClipboardData(CF_UNICODETEXT);
@@ -111,6 +105,7 @@ void MonitorClipboard() {
     CloseClipboard();
 }
 
+// --- 📥 FILE DROP HANDLER ---
 void OnFileDrop(GLFWwindow* window, int count, const char** paths) {
     time_t now = time(0); struct tm t; localtime_s(&t, &now); 
     char timeBuf[10]; strftime(timeBuf, sizeof(timeBuf), "%H:%M", &t);
@@ -127,12 +122,13 @@ int main() {
     glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
 
-    GLFWwindow* window = glfwCreateWindow(850, 650, "AppleClip Pro", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(880, 680, "Sequoia Master Pro", NULL, NULL);
     HWND hwnd = glfwGetWin32Window(window);
     
-    // Sequoia Blur Effect
+    // Sequoia Blur
     BOOL darkMode = TRUE; DwmSetWindowAttribute(hwnd, 20, &darkMode, sizeof(darkMode));
-    int backdrop = 3; DwmSetWindowAttribute(hwnd, 38, &backdrop, sizeof(backdrop));
+    int bdrop = 3; DwmSetWindowAttribute(hwnd, 38, &bdrop, sizeof(bdrop));
+    int corner = 2; DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
 
     glfwMakeContextCurrent(window);
     glfwSetDropCallback(window, OnFileDrop);
@@ -141,6 +137,9 @@ int main() {
     IMGUI_CHECKVERSION(); ImGui::CreateContext();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 130");
+
+    ImGui::GetStyle().WindowRounding = 30.0f;
+    ImGui::GetStyle().FrameRounding = 15.0f;
 
     while (!glfwWindowShouldClose(window)) {
         MSG msg;
@@ -164,40 +163,50 @@ int main() {
         } else isDraggingWindow = false;
 
         ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
-        
-        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::Begin("Canvas", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize); ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::Begin("Master", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground);
         
         ImDrawList* dl = ImGui::GetWindowDrawList();
         ImVec2 sz = ImGui::GetIO().DisplaySize;
 
-        // Sequoia Design
-        dl->AddRectFilled(ImVec2(0, 0), sz, IM_COL32(10, 10, 15, 245), 28.0f);
-        dl->AddRectFilled(ImVec2(0, 0), ImVec2(250, sz.y), IM_COL32(255, 255, 255, 10), 28.0f, ImDrawFlags_RoundCornersLeft);
+        // UI Design
+        dl->AddRectFilled(ImVec2(0, 0), sz, IM_COL32(10, 10, 15, 250), 30.0f);
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(260, sz.y), IM_COL32(255, 255, 255, 10), 30.0f, ImDrawFlags_RoundCornersLeft);
 
-        // Sidebar Nav
-        ImGui::SetCursorPos(ImVec2(25, 110));
-        auto Nav = [&](const char* label, int id) {
-            if (selectedTab == id) dl->AddRectFilled(ImVec2(ImGui::GetCursorScreenPos().x - 10, ImGui::GetCursorScreenPos().y - 5), ImVec2(ImGui::GetCursorScreenPos().x + 210, ImGui::GetCursorScreenPos().y + 35), IM_COL32(0, 122, 255, 255), 14.0f);
-            if (ImGui::Selectable(label, selectedTab == id, 0, ImVec2(200, 30))) selectedTab = id;
+        // Sidebar Navigation
+        ImGui::SetCursorPos(ImVec2(30, 110));
+        auto AppleNav = [&](const char* label, int id) {
+            bool act = (selectedTab == id);
+            if (act) dl->AddRectFilled(ImVec2(ImGui::GetCursorScreenPos().x - 10, ImGui::GetCursorScreenPos().y - 5), ImVec2(ImGui::GetCursorScreenPos().x + 220, ImGui::GetCursorScreenPos().y + 35), IM_COL32(0, 122, 255, 255), 15.0f);
+            if (ImGui::Selectable(label, act, 0, ImVec2(210, 30))) selectedTab = id;
             ImGui::Spacing(); ImGui::Spacing();
         };
-        Nav("   All Snippets", 0); Nav("   Files & Drops", 1); Nav("   Images", 2);
+        AppleNav("   All Items", 0); AppleNav("   Files & Drops", 1); AppleNav("   Images", 2); AppleNav("   Pinned", 3);
 
-        // List View
-        ImGui::SetCursorPos(ImVec2(280, 80));
-        if (ImGui::BeginChild("Scroll", ImVec2(530, 540), false, ImGuiWindowFlags_NoBackground)) {
+        // Clear All Button
+        ImGui::SetCursorPos(ImVec2(30, 600));
+        if (ImGui::Button("   Clear History   ", ImVec2(200, 40))) { history.clear(); lastCapturedText = L""; }
+
+        // Search Bar
+        ImGui::SetCursorPos(ImVec2(290, 40));
+        ImGui::SetNextItemWidth(550);
+        ImGui::InputTextWithHint("##Search", "Search everything...", searchBuffer, 128);
+
+        // Content Scroll
+        ImGui::SetCursorPos(ImVec2(290, 100));
+        if (ImGui::BeginChild("Scroll", ImVec2(560, 560), false, ImGuiWindowFlags_NoBackground)) {
             for (int i = 0; i < (int)history.size(); i++) {
+                // Filters
                 if (selectedTab == 1 && history[i].type != "File") continue;
                 if (selectedTab == 2 && history[i].type != "Image") continue;
+                if (selectedTab == 3 && !history[i].isPinned) continue;
 
                 ImGui::PushID(i); ImVec2 p = ImGui::GetCursorScreenPos();
-                dl->AddRectFilled(p, ImVec2(p.x + 510, p.y + 110), ImGui::IsMouseHoveringRect(p, ImVec2(p.x + 510, p.y + 110)) ? IM_COL32(255, 255, 255, 30) : IM_COL32(255, 255, 255, 15), 20.0f);
+                bool hov = ImGui::IsMouseHoveringRect(p, ImVec2(p.x + 540, p.y + 110));
+                dl->AddRectFilled(p, ImVec2(p.x + 540, p.y + 110), hov ? IM_COL32(255, 255, 255, 30) : IM_COL32(255, 255, 255, 15), 22.0f);
                 
                 if (history[i].type == "Image" && history[i].textureID != 0) {
                     ImGui::SetCursorScreenPos(ImVec2(p.x + 15, p.y + 15));
-                    // --- FIXED IMGUI::IMAGE CAST ---
                     ImGui::Image((ImTextureID)(intptr_t)history[i].textureID, ImVec2(80, 80));
                     ImGui::SetCursorScreenPos(ImVec2(p.x + 110, p.y + 25));
                     ImGui::TextColored(ImVec4(0, 0.8f, 0, 1), "IMAGE PREVIEW");
@@ -205,12 +214,16 @@ int main() {
                     ImGui::SetCursorScreenPos(ImVec2(p.x + 20, p.y + 20));
                     ImGui::TextColored(ImVec4(0, 0.5f, 1, 1), history[i].type.c_str());
                     ImGui::SetCursorScreenPos(ImVec2(p.x + 20, p.y + 45));
-                    std::string t = std::string(history[i].text.begin(), history[i].text.end()).substr(0, 50);
+                    std::string t = std::string(history[i].text.begin(), history[i].text.end()).substr(0, 60);
                     ImGui::Text(t.c_str());
                 }
 
+                // Interaction Buttons (Pin & Copy)
+                ImGui::SetCursorPos(ImVec2(450, ImGui::GetCursorPos().y - 85));
+                if (ImGui::Button(history[i].isPinned ? "Unpin" : "Pin")) history[i].isPinned = !history[i].isPinned;
+
                 ImGui::SetCursorScreenPos(p);
-                if (ImGui::InvisibleButton("##C", ImVec2(510, 110))) {
+                if (ImGui::InvisibleButton("##Card", ImVec2(440, 110))) {
                     if (history[i].type != "Image") {
                         OpenClipboard(NULL); EmptyClipboard();
                         HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (history[i].text.size() + 1) * sizeof(wchar_t));
@@ -223,7 +236,6 @@ int main() {
             }
             ImGui::EndChild();
         }
-
         ImGui::End(); ImGui::Render(); glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData()); glfwSwapBuffers(window);
     }
