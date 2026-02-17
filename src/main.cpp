@@ -24,7 +24,6 @@ std::vector<ClipItem> history;
 char searchBuffer[128] = "";
 std::wstring lastCapturedText = L"";
 
-// Unicode to UTF8 for Display
 std::string WStringToString(const std::wstring& wstr) {
     if (wstr.empty()) return "";
     int size = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
@@ -33,7 +32,6 @@ std::string WStringToString(const std::wstring& wstr) {
     return str;
 }
 
-// Smart Category Detection
 Category IdentifyCategory(const std::wstring& wstr) {
     std::string str = WStringToString(wstr);
     if (str.find("http") != std::string::npos || str.find("www.") != std::string::npos) return LINKS;
@@ -41,7 +39,6 @@ Category IdentifyCategory(const std::wstring& wstr) {
     return TEXT;
 }
 
-// Theme Apply (Cyberpunk Neon)
 void ApplyCyberpunkTheme() {
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding = 10.0f;
@@ -86,7 +83,6 @@ int main() {
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
-    // Always on Top
     HWND hwnd = glfwGetWin32Window(window);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
@@ -111,11 +107,9 @@ int main() {
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
         ImGui::Begin("Dashboard", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
 
-        // Neon Header
         ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.7f, 1.0f), ">> DYNAMO CLIPBOARD PRO");
         ImGui::Separator();
 
-        // CATEGORY TABS WITH NEON COLORS
         auto TabButton = [&](const char* label, Category cat, ImVec4 activeColor) {
             if (currentTab == cat) ImGui::PushStyleColor(ImGuiCol_Button, activeColor);
             if (ImGui::Button(label, ImVec2(90, 30))) currentTab = cat;
@@ -145,13 +139,14 @@ int main() {
 
                 ImGui::PushID(i);
                 
-                // Color Tag Indicator
-                ImVec4 tagColor = (history[i].cat == LINKS) ? ImVec4(0, 0.7, 1, 1) : (history[i].cat == CODE) ? ImVec4(0.7, 0, 1, 1) : ImVec4(0.5, 0.5, 0.5, 1);
+                ImVec4 tagColor = (history[i].cat == LINKS) ? ImVec4(0, 0.7f, 1, 1) : (history[i].cat == CODE) ? ImVec4(0.7f, 0, 1, 1) : ImVec4(0.5f, 0.5f, 0.5f, 1);
                 ImGui::TextColored(tagColor, "|"); ImGui::SameLine();
 
-                if (history[i].pinned) { ImGui::TextColored(ImVec4(1, 0.9, 0, 1), "[PIN]"); ImGui::SameLine(); }
+                if (history[i].pinned) { ImGui::TextColored(ImVec4(1, 0.9f, 0, 1), "[PIN]"); ImGui::SameLine(); }
 
                 std::string preview = utf8.substr(0, 40) + (utf8.size() > 40 ? "..." : "");
+                
+                bool isHovered = false;
                 if (ImGui::Selectable(preview.c_str(), false, 0, ImVec2(0, 45))) {
                     if (OpenClipboard(nullptr)) {
                         EmptyClipboard();
@@ -164,10 +159,9 @@ int main() {
                 }
                 
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Double-click to view full or Click to copy");
-                    style.Colors[ImGuiCol_Text] = ImVec4(0, 1, 0.8, 1); // Hover effect
-                } else {
-                    style.Colors[ImGuiCol_Text] = ImVec4(0.9, 0.9, 0.95, 1);
+                    ImGui::SetTooltip("Click to Copy");
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 1, 0.8f, 1)); 
+                    isHovered = true;
                 }
 
                 if (ImGui::BeginPopupContextItem()) {
@@ -180,6 +174,8 @@ int main() {
                     if (ImGui::MenuItem("Delete")) { history.erase(history.begin() + i); ImGui::EndPopup(); ImGui::PopID(); break; }
                     ImGui::EndPopup();
                 }
+
+                if (isHovered) ImGui::PopStyleColor(); 
 
                 ImGui::Separator();
                 ImGui::PopID();
@@ -194,5 +190,14 @@ int main() {
         glfwSwapBuffers(window);
         Sleep(50);
     }
+    
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    
     return 0;
 }
+
+
